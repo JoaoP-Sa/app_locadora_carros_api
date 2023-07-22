@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Marca;
+use App\Repositories\MarcaRepository;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class MarcaController extends Controller
 {
@@ -19,12 +21,67 @@ class MarcaController extends Controller
      *
      * @return \Illuminate\Http\Response
      */
-    public function index()
+    public function index(Request $request)
     {
         //$marcas = Marca::all();
 
-        $marcas = $this->marca->all();
-        return response()->json($marcas, 200);
+        /* ---------------------------- uso de marca repository ------------------------------- */
+
+        $marcaRepository = new MarcaRepository($this->marca);
+
+        if ($request->has('atributos_modelos')) {
+            $atributos_modelos = 'modelos:id,'.$request->atributos_modelos;
+            $marcaRepository->selectAtributosRegistrosRelacionados($atributos_modelos);
+        } else {
+            $marcaRepository->selectAtributosRegistrosRelacionados('modelos');
+        }
+
+        if ($request->has('filtro')) {
+            $marcaRepository->filtro($request->filtro);
+        }
+
+        if ($request->has('atributos')) {
+            $marcaRepository->selectAtributos($request->atributos);
+        }
+
+        /* ------------------------------------------------------------------------------------ */
+
+        /* repare como com o uso de repository acima conseguimos encurtar todo o código, que é
+           visivelmente maior embaixo, e que só está sendo mantido comentado para fins didáticos */
+
+
+        // $marcas = [];
+
+        // if ($request->has('atributos_modelos')) {
+        //     $atributos_modelos = $request->atributos_modelos;
+        //     $marcas = $this->marca->with('modelos:id,'.$atributos_modelos);
+        // } else {
+        //     $marcas = $this->marca->with('modelos');
+        // }
+
+        // if ($request->has('filtro')) {
+        //     $filtros = explode(';', $request->filtro);
+
+        //     foreach($filtros as $key => $condicao) {
+        //         $condicoes = explode(':', $condicao);
+        //         $marcas = $marcas->where($condicoes[0], $condicoes[1], $condicoes[2]);
+        //     }
+        // }
+
+        // if ($request->has('atributos')) {
+        //     $atributos = $request->atributos;
+        //     $marcas = $marcas->selectRaw($atributos)->get();
+
+        //     //o método selectRaw aceita receber uma string única separada por vírgula, ele consegue
+        //     //pegar essa string e quebrar ela em várias outras através da vírgula
+        // } else {
+        //     $marcas = $marcas->get();
+        // }
+
+        //$marcas = $this->marca->all();
+
+        // return response()->json($marcas, 200);
+        return response()->json($marcaRepository->getResultado(), 200);
     }
 
     /**
@@ -68,7 +125,7 @@ class MarcaController extends Controller
      */
     public function show($id)
     {
-        $marca = $this->marca->find($id);
+        $marca = $this->marca->with('modelos')->find($id);
 
         if ($marca === null) {
             //return ['erro' => 'Recurso pesquisado não existe.'];
@@ -118,7 +175,24 @@ class MarcaController extends Controller
             $request->validate($marca->rules(), $marca->feedback());
         }
 
-        $marca->update($request->all());
+        if ($request->file('imagem')) {
+            Storage::disk('public')->delete($marca->imagem);
+        }
+
+        $image = $request->file('imagem');
+        $image_urn = $image->store('imagens', 'public');
+
+        // preencher o objeto marca com os dados do request
+        $marca->fill($request->all());
+        $marca->imagem = $image_urn;
+
+        $marca->save();
+
+        // $marca->update([
+        //     'nome' => $request->input('nome'),
+        //     'imagem' => $image_urn
+        // ]);
+
         return response()->json($marca, 200);
     }
 
@@ -137,6 +211,8 @@ class MarcaController extends Controller
         if ($marca === null) {
             return response()->json(['erro' => 'Impossível realizar a exclusão. O recurso solicitado não existe.'], 404);
         }
+
+        Storage::disk('public')->delete($marca->imagem);
 
         $marca->delete();
         return response()->json(['msg' => 'A marca foi removida com sucesso!'], 200);
